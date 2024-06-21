@@ -12,9 +12,7 @@ import {
 import { settingsStore } from "./settings";
 import { get } from "svelte/store";
 import { marked } from "marked";
-import { basicStyle } from "./style/basicStyle";
-import { wechatFormat } from "./style/wechatFormat";
-import { codeStyle } from "./style/codeStyle";
+
 import juice from "juice";
 import * as mime from "mime-types";
 import { NodeHtmlMarkdown } from "node-html-markdown";
@@ -28,11 +26,11 @@ import {
 	MediaItem,
 	NewsItem,
 } from "./models";
-import { chooseBoundary, isWebp, jsonToUrlEncoded } from "utils/cookiesUtil";
+import { chooseBoundary } from "utils/cookiesUtil";
 
-import fs from "fs";
 import ytdl from "ytdl-core";
 import { HttpsProxyAgent } from "https-proxy-agent";
+import { svgMap } from "./svgMap";
 
 export default class ApiManager {
 	app: App;
@@ -72,7 +70,15 @@ export default class ApiManager {
 		});
 	}
 
-	public solveHTML(html: string): string {
+	public async getCssFromFile(): Promise<string> {
+		const cssfilename = "wechat.css";
+		const cssfile = this.app.vault.getAbstractFileByPath(cssfilename!);
+		const cssContent = await this.app.vault.read(cssfile);
+		// console.log(cssContent);
+		return cssContent;
+	}
+
+	public async solveHTML(html: string): Promise<string> {
 		html = html.replace(
 			/<mjx-container (class="inline.+?)<\/mjx-container>/g,
 			"<span $1</span>"
@@ -90,14 +96,11 @@ export default class ApiManager {
 		html = html.replace(/<mjx-assistive-mml.+?<\/mjx-assistive-mml>/g, "");
 		let res = "";
 		try {
-			res = juice.inlineContent(
-				html,
-				basicStyle + wechatFormat + codeStyle + "",
-				{
-					inlinePseudoElements: true,
-					preserveImportant: true,
-				}
-			);
+			const css = await this.getCssFromFile();
+			res = juice.inlineContent(html, css + "", {
+				inlinePseudoElements: true,
+				preserveImportant: true,
+			});
 		} catch (e) {
 			new Notice("请检查 CSS 文件是否编写正确！");
 		}
@@ -158,43 +161,6 @@ export default class ApiManager {
 				new Notice("刷新 AccessToken 成功");
 				settingsStore.actions.setAccessToken(respAccessToken);
 			}
-		}
-		return true;
-	}
-
-	public async refreshBJHToken(
-		cookie: string,
-		token: string
-	): Promise<Boolean> {
-		if (cookie === "" || token === "") {
-			new Notice("Please input correct [cookie] and [token]");
-			return false;
-		}
-
-		const url = `https://baijiahao.baidu.com/builder/app/appinfo`;
-		let BJHheader: Record<string, string> = this.getBjhHeaders();
-		BJHheader["Cookie"] = cookie;
-		BJHheader["token"] = token;
-		const req: RequestUrlParam = {
-			url: url,
-			method: "HEAD",
-			headers: BJHheader,
-		};
-		const resp = await requestUrl(req);
-		// console.log(resp.headers);
-
-		const respAccessToken: string = resp.headers["token"];
-		if (respAccessToken === undefined) {
-			const errcode = resp.json["errcode"];
-			const errmsg = resp.json["errmsg"];
-			console.error(errmsg);
-			new Notice(
-				`尝试刷新AccessToken失败, errorCode: ${errcode}, errmsg: ${errmsg}`
-			);
-			return false;
-		} else {
-			new Notice("刷新 AccessToken 成功");
-			settingsStore.actions.setBjhJwtToken(respAccessToken);
 		}
 		return true;
 	}
@@ -399,18 +365,21 @@ export default class ApiManager {
 			const MdImagedContent = await this.handleMDImage(content, "wx");
 			const htmlText = await marked.parse(MdImagedContent);
 			const htmlText1 = this.formatCodeHTML(htmlText);
-			const htmlText2 = this.solveHTML(
-				`<section id="nice">` + htmlText1 + `</section>`
+			console.log("htmlText1", htmlText1);
+			const htmlText2 = this.handleCallout(htmlText1);
+			console.log("htmlText2", htmlText2);
+			const htmlText3 = await this.solveHTML(
+				`<section id="nice">` + htmlText2 + `</section>`
 			);
-			// console.log(htmlText2);
-			// return
+			console.log("htmlText3", htmlText3);
+			return;
 
 			const url = `${this.baseWxUrl}/draft/add?access_token=${setings.accessToken}`;
 			const article: ArticleElement = {
 				title: title,
 				author: author,
 				digest: digest,
-				content: htmlText2.replace(/[\r\n]/g, ""),
+				content: htmlText3.replace(/[\r\n]/g, ""),
 				content_source_url: content_source_url,
 				thumb_media_id: thumb_media_id!,
 				need_open_comment: need_open_comment,
@@ -444,6 +413,45 @@ export default class ApiManager {
 			);
 			console.error("new wechat public draft error" + e);
 		}
+	}
+	public handleCallout(htmlString: string): string {
+		// 正则表达式匹配 <blockquote> 标签及其内容
+		const blockquoteRegex = /<blockquote>([\s\S]*?)<\/blockquote>/g;
+		// 替换函数，用于处理每个匹配到的 <blockquote> 内容
+		const calloutPatternRegex = /\[!(note|info)\]/i;
+		// 替换函数，用于处理每个匹配到的 <blockquote> 内容
+		const replaceFunction = (match: any, content: string) => {
+			// 检查内容中是否包含 [!note] 或 [!info] 等
+			const hasCallout = calloutPatternRegex.test(content);
+
+			// 如果包含，处理 <blockquote> 的内容
+			if (hasCallout) {
+				// 将 <p> 标签替换为带有 callout-title 或 callout-content 类的 <div> 标签
+				const processedContent = content.replace(
+					/<p>(.*?)<\/p>/g,
+					(_pMatch: any, pContent: string) => {
+						if (calloutPatternRegex.test(pContent)) {
+							pContent = pContent.replace(
+								calloutPatternRegex,
+								(m, cap) => {
+									return svgMap[cap] || m;
+								}
+							);
+							return `<p><callout-title>${pContent}</callout-title></p>`;
+						} else {
+							return `<p><callout-content>${pContent}</callout-content></p>`;
+						}
+					}
+				);
+				// 返回带有 callout 类的 <blockquote> 标签
+				return `<blockquote><callout>${processedContent}</callout></blockquote>`;
+			}
+			// 如果不包含，返回原始的 <blockquote> 标签
+			return match;
+		};
+
+		// 使用正则表达式和替换函数处理htmlString
+		return htmlString.replace(blockquoteRegex, replaceFunction);
 	}
 
 	async freepublish(media_id: string): Promise<string | undefined> {
@@ -688,8 +696,6 @@ export default class ApiManager {
 			let responseUrl;
 			if (to === "wx") {
 				responseUrl = await this.uploadImageToWx(imagePath, "");
-			} else if (to === "bjh") {
-				responseUrl = await this.uploadImageToBjh(imagePath, "");
 			}
 			return {
 				match,
@@ -832,290 +838,6 @@ export default class ApiManager {
 		} catch (e) {
 			new Notice("Failed to upload image");
 			console.error("upload image error" + e);
-		}
-	}
-
-	async uploadImageToBjh(
-		path: string,
-		fileName: string
-	): Promise<string | undefined> {
-		try {
-			const setings = get(settingsStore);
-			let blobBytes: ArrayBuffer | null = null;
-			if (path.startsWith("http")) {
-				const imgresp = await requestUrl(path);
-				blobBytes = imgresp.arrayBuffer;
-			} else {
-				let nPath = normalizePath(path);
-				if (nPath.startsWith("./")) {
-					nPath = nPath.slice(2);
-				}
-				const imgfile = this.app.vault.getAbstractFileByPath(nPath);
-				if (imgfile instanceof TFile) {
-					const data = await this.app.vault.readBinary(imgfile);
-					blobBytes = data;
-				} else {
-					new Notice(
-						"Please input correct file relative path in obsidian"
-					);
-					return;
-				}
-			}
-
-			const boundary = chooseBoundary();
-			const end_boundary = "\r\n--" + boundary + "--\r\n";
-			let formDataString = "";
-			formDataString += "--" + boundary + "\r\n";
-			formDataString +=
-				`Content-Disposition: form-data; name="type"` +
-				"\r\n\r\n" +
-				"image" +
-				"\r\n";
-
-			formDataString += "--" + boundary + "\r\n";
-			formDataString +=
-				`Content-Disposition: form-data; name="app_id"` +
-				"\r\n\r\n" +
-				setings.BjhAppID +
-				"\r\n";
-			formDataString += "--" + boundary + "\r\n";
-			formDataString +=
-				`Content-Disposition: form-data; name="is_waterlog"` +
-				"\r\n\r\n" +
-				"1" +
-				"\r\n";
-			formDataString += "--" + boundary + "\r\n";
-			formDataString +=
-				`Content-Disposition: form-data; name="save_material"` +
-				"\r\n\r\n" +
-				"1" +
-				"\r\n";
-			formDataString += "--" + boundary + "\r\n";
-			formDataString +=
-				`Content-Disposition: form-data; name="no_compress"` +
-				"\r\n\r\n" +
-				"0" +
-				"\r\n";
-			formDataString += "--" + boundary + "\r\n";
-			formDataString +=
-				`Content-Disposition: form-data; name="is_events"` +
-				"\r\n\r\n" +
-				"\r\n";
-			formDataString += "--" + boundary + "\r\n";
-			formDataString +=
-				`Content-Disposition: form-data; name="article_type"` +
-				"\r\n\r\n" +
-				"news" +
-				"\r\n";
-			formDataString += "--" + boundary + "\r\n";
-			let contentType = mime.contentType(path);
-			if (
-				contentType !== "image/jpeg" &&
-				contentType !== "image/png" &&
-				contentType !== "image/jpg"
-			) {
-				contentType = "image/png";
-			}
-			formDataString +=
-				`Content-Disposition: form-data; name="media"; filename=\"${fileName}.png\"` +
-				"\r\n";
-			formDataString += `Content-Type: ${contentType}` + "\r\n\r\n";
-
-			const formDatabuffer = Buffer.from(formDataString, "utf-8"); // utf8 encode, for chinese
-			let resultArray = Array.from(formDatabuffer);
-			// console.log(formDataString);
-			// return
-			if (blobBytes !== null) {
-				let pic_typedArray = new Uint8Array(blobBytes); // 把buffer转为typed array数据、再转为普通数组使之可以使用数组的方法
-				if (isWebp(pic_typedArray)) {
-					new Notice(
-						"not support format image/webp, use the pointed cover"
-					);
-					// todo: to be updated later
-					const pointedCover =
-						"https://mmbiz.qpic.cn/mmbiz_jpg/avKRXZvpU06jcDsZoj2IPxLtG08lfq3hvVUianAGoxyc5d3hpsic3CPoRTeiaNBvqr0LaSHcES0x1k1cvwxUVSoxA/0?wx_fmt=jpeg";
-					const imgresp = await requestUrl(pointedCover);
-					pic_typedArray = new Uint8Array(imgresp.arrayBuffer);
-				}
-				let endBoundaryArray = [];
-				for (let i = 0; i < end_boundary.length; i++) {
-					// 最后取出结束boundary的charCode
-					endBoundaryArray.push(end_boundary.charCodeAt(i));
-				}
-				let postArray = resultArray.concat(
-					Array.prototype.slice.call(pic_typedArray),
-					endBoundaryArray
-				); // 合并文本、图片数据得到最终要发送的数据
-				let post_typedArray = new Uint8Array(postArray); // 把最终结果转为typed array，以便最后取得buffer数据
-				// console.log(post_typedArray)
-
-				const url = `https://baijiahao.baidu.com/pcui/picture/uploadproxy`;
-				const header = {
-					"Content-Type": "multipart/form-data; boundary=" + boundary,
-					"Accept-Encoding": "gzip, deflate, br",
-					Accept: "*/*",
-					Connection: "keep-alive",
-					Referer:
-						"https://baijiahao.baidu.com/builder/rc/edit?type=news",
-					token: setings.BjhJwtToken,
-					Cookie: setings.BjhCookie,
-				};
-
-				const req: RequestUrlParam = {
-					url: url,
-					method: "POST",
-					headers: header,
-					body: post_typedArray.buffer,
-				};
-				const resp = await requestUrl(req);
-				const errcode = resp.json["errno"];
-				if (errcode !== 0) {
-					const errmsg = resp.json["errmsg"];
-					console.error(
-						decodeURIComponent(JSON.stringify(resp.json))
-					);
-					new Notice(
-						`uploadMaterial, errorCode: ${errcode}, errmsg: ${errmsg}`
-					);
-					return;
-				}
-				const media_id = resp.json["ret"]["https_url"];
-				new Notice(`Success upload Image url ${media_id}.`);
-				return media_id;
-			} else {
-				throw new Error(
-					"resrouce is empty,blobBytes, Failed to upload image"
-				);
-			}
-		} catch (e) {
-			new Notice("Failed to upload image");
-			console.error("upload image error" + e);
-		}
-	}
-
-	async publishToBjh(
-		title: string,
-		content: string,
-		frontmatter: FrontMatterCache
-	): Promise<string | undefined> {
-		try {
-			const setings = get(settingsStore);
-			await this.refreshBJHToken(setings.BjhCookie, setings.BjhJwtToken);
-
-			let BjhHeader: Record<string, string> = this.getBjhHeaders();
-			BjhHeader["content-type"] = "application/x-www-form-urlencoded";
-			BjhHeader["Referer"] =
-				"https://baijiahao.baidu.com/builder/rc/edit?type=news";
-			BjhHeader["token"] = setings.BjhJwtToken;
-			BjhHeader["Cookie"] = setings.BjhCookie;
-
-			let cover_media_url: string | undefined = "";
-			let author = "";
-			let digest = "";
-			if (frontmatter !== undefined) {
-				if (
-					frontmatter["banner"] !== undefined &&
-					frontmatter["banner"] !== ""
-				) {
-					cover_media_url = await this.uploadImageToBjh(
-						frontmatter["banner"],
-						title + "_banner"
-					);
-				} else if (
-					frontmatter["banner_path"] !== undefined &&
-					frontmatter["banner_path"] !== ""
-				) {
-					cover_media_url = await this.uploadImageToBjh(
-						frontmatter["banner_path"],
-						title + "_banner"
-					);
-				}
-
-				if (
-					cover_media_url === "" &&
-					frontmatter["banner"] === undefined &&
-					frontmatter["banner_path"] === undefined
-				) {
-					new Notice(
-						"Please set banner of article, thumb_media_id, banner, banner_path in file frontManager"
-					);
-					return;
-				}
-				author = frontmatter["author"];
-				digest = frontmatter["digest"];
-			} else {
-				new Notice(
-					"Please set banner of article, banner, banner_path in file frontManager"
-				);
-				return;
-			}
-			const MdImagedContent = await this.handleMDImage(content, "bjh");
-			const htmlText = await marked.parse(MdImagedContent);
-			const htmlText1 = this.formatCodeHTML(htmlText);
-			const htmlText2 =
-				this.solveHTML(
-					`<section id="nice">` + htmlText1 + `</section>`
-				) + `<img src="${cover_media_url}"><br>`;
-			// console.log(htmlText2);
-			// return
-
-			const url = `https://baijiahao.baidu.com/pcui/article/publish?callback=bjhpublish`;
-			const cover_images = [
-				{
-					src: cover_media_url!,
-					cropData: { x: 0, y: 0, width: 2048, height: 1365 },
-					machine_chooseimg: 0,
-					isLegal: 1,
-				},
-			];
-
-			const cover_images_map = [{ src: cover_media_url! }];
-			const reqBody = {
-				type: "news",
-				title: title,
-				author: author,
-				abstract: digest,
-				content: htmlText2,
-				auto_mount_goods: "1",
-				len: htmlText2.length.toString(),
-				vertical_cover: cover_media_url!,
-				cover_images: JSON.stringify(cover_images),
-				_cover_images_map: JSON.stringify(cover_images_map),
-			};
-			const activityList = `&activity_list%5B0%5D%5Bid%5D=408&activity_list%5B0%5D%5Bis_checked%5D=0&activity_list%5B1%5D%5Bid%5D=ttv&activity_list%5B1%5D%5Bis_checked%5D=1&activity_list%5B2%5D%5Bid%5D=reward&activity_list%5B2%5D%5Bis_checked%5D=1&activity_list%5B3%5D%5Bid%5D=aigc_bjh_status&activity_list%5B3%5D%5Bis_checked%5D=0&source_reprinted_allow=0&abstract_from=2&isBeautify=false&usingImgFilter=false&cover_layout=one`;
-			const postStr = `&source=upload&cover_source=upload&subtitle=&bjhtopic_id=&bjhtopic_info=&clue=1&bjhmt=&order_id=&aigc_rebuild=&image_edit_point=%5B%7B%22img_type%22%3A%22cover%22%2C%22img_num%22%3A%7B%22template%22%3A0%2C%22font%22%3A0%2C%22filter%22%3A0%2C%22paster%22%3A0%2C%22cut%22%3A0%2C%22any%22%3A0%7D%7D%2C%7B%22img_type%22%3A%22body%22%2C%22img_num%22%3A%7B%22template%22%3A0%2C%22font%22%3A0%2C%22filter%22%3A0%2C%22paster%22%3A0%2C%22cut%22%3A0%2C%22any%22%3A0%7D%7D%5D`;
-			const bodyContent =
-				jsonToUrlEncoded(reqBody) + activityList + postStr;
-			const req: RequestUrlParam = {
-				url: url,
-				method: "POST",
-				headers: BjhHeader,
-				body: bodyContent,
-			};
-
-			const resp = await requestUrl(req);
-			const errcode = resp.json["errno"];
-			if (errcode !== 0) {
-				const errcode = resp.json["errno"];
-				const errmsg = resp.json["errmsg"];
-				console.error(errmsg);
-				// console.log("resp = " + decodeURIComponent(JSON.stringify(resp.json)));
-				new Notice(
-					`newDraft, errorCode: ${errcode}, errmsg: ${errmsg}`
-				);
-				return;
-			}
-			const media_id = resp.json["ret"]["url"];
-			if (resp.headers["token"] !== "") {
-				settingsStore.actions.setBjhJwtToken(resp.headers["token"]);
-			}
-			new Notice(`Success publish article media_id ${media_id}.`);
-			return media_id;
-		} catch (e) {
-			new Notice(
-				"Failed to publish to baidu bjh. Please check your appId, secret and try again."
-			);
-			console.error("publish to baidu bjh error" + e);
 		}
 	}
 

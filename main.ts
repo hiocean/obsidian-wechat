@@ -1,4 +1,4 @@
-import { Editor, MarkdownView, Notice, Plugin, TFile } from "obsidian";
+import { Editor, MarkdownView, Notice, Plugin, TFile, App } from "obsidian";
 import { WeChatPublicSettingTab } from "./src/settingTab";
 import ApiManager from "src/api";
 import { settingsStore } from "src/settings";
@@ -19,7 +19,9 @@ export default class WeChatPublic extends Plugin {
 		settingsStore.initialise(this);
 		this.frontManager = new FrontMatterManager(this.app);
 		this.apiManager = new ApiManager(this.app);
+		//---
 
+		///--
 		const ribbonIconEl = this.addRibbonIcon(
 			"send",
 			"发布到草稿箱",
