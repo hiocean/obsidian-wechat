@@ -35,6 +35,7 @@ export class WeChatPublicSettingTab extends PluginSettingTab {
 		this.setAppId();
 		this.setSecret();
 		this.setDownloadFolder();
+		this.setCssFolder();
 		this.setBlacklist();
 		this.setNoteLocationFolder();
 	}
@@ -176,6 +177,28 @@ export class WeChatPublicSettingTab extends PluginSettingTab {
 					.setValue(get(settingsStore).downloadFolder)
 					.onChange(async (value) => {
 						settingsStore.actions.setDownloadFolder(value);
+					});
+			});
+	}
+
+	private setCssFolder(): void {
+		new Setting(this.containerEl)
+			.setName("Css File folder")
+			.setDesc("Set the wechat.css and custom.css in this folder")
+			.addDropdown((dropdown) => {
+				const files = this.app.vault.getAllLoadedFiles();
+				const folders = pickBy(files, (val: any) => {
+					return val instanceof TFolder;
+				});
+
+				Object.values(folders).forEach((val: TFolder) => {
+					dropdown.addOption(val.path, val.path);
+				});
+
+				return dropdown
+					.setValue(get(settingsStore).cssFolder)
+					.onChange(async (value) => {
+						settingsStore.actions.setCssFolder(value);
 					});
 			});
 	}

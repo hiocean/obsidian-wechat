@@ -315,8 +315,12 @@ export default class ApiManager {
 			htmlText = processCallout(htmlText, svgMap);
 			console.log("processCallout", htmlText);
 			htmlText = processDoubleLink(htmlText);
-			const css1 = await this.getCssFromFile("wechat.css");
-			const css2 = await this.getCssFromFile("custom.css");
+			const css1 = await this.getCssFromFile(
+				`${setings.downloadFolder}/wechat.css`
+			);
+			const css2 = await this.getCssFromFile(
+				`${setings.downloadFolder}/custom.css`
+			);
 			console.log("processDoubleLink", htmlText);
 			htmlText = await solveHTML(
 				`<section id="nice">` + htmlText + `</section>`,

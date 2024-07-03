@@ -1,40 +1,34 @@
-import { writable } from 'svelte/store';
-import WeChatPublic from '../main';
+import { writable } from "svelte/store";
+import WeChatPublic from "../main";
 
 interface WechatPublicPluginSettings {
 	appid: string;
 	secret: string;
 	accessToken: string;
-	lastAccessKeyTime: number
+	lastAccessKeyTime: number;
 	isTokenValid: boolean;
-	downloadFolder: string;	// for automatic release using, wechat article save folder
-	noteLocationFolder: string;	// for automatic release using
+	downloadFolder: string; // for automatic release using, wechat article save folder
+	noteLocationFolder: string; // for automatic release using
 	BlacklistFolder: string;
-	youtubeSaveFolder: string;	// youtube video save folder
-	ProxyIP: string;	// proxy IP for download youtube
-	VideoResolution: string;	// video resolution
-	BjhJwtToken: string;		// baidu bjh jwt token
-	BjhCookie: string; 			// baidu bjh cookie
-	BjhName: string; 			// baidu bjh name
-	BjhAppID: string; 			// baidu bjh appid
+	youtubeSaveFolder: string; // youtube video save folder
+	ProxyIP: string; // proxy IP for download youtube
+	VideoResolution: string; // video resolution
+	cssFolder: string;
 }
 
 const DEFAULT_SETTINGS: WechatPublicPluginSettings = {
-	appid: '',
-	secret: '',
-	accessToken: '',
+	appid: "",
+	secret: "",
+	accessToken: "",
 	lastAccessKeyTime: -1,
 	isTokenValid: false,
-	downloadFolder: '',
-	youtubeSaveFolder: '',
-	noteLocationFolder: '',
-	BlacklistFolder: '',
-	ProxyIP: '',
-	VideoResolution: '',
-	BjhCookie: '',
-	BjhJwtToken: '',
-	BjhName: '',
-	BjhAppID: '',
+	downloadFolder: "",
+	youtubeSaveFolder: "",
+	noteLocationFolder: "",
+	BlacklistFolder: "",
+	ProxyIP: "",
+	VideoResolution: "",
+	cssFolder: "",
 };
 
 const createSettingsStore = () => {
@@ -43,10 +37,14 @@ const createSettingsStore = () => {
 	let _plugin!: WeChatPublic;
 
 	const initialise = async (plugin: WeChatPublic): Promise<void> => {
-		const data = Object.assign({}, DEFAULT_SETTINGS, await plugin.loadData());
+		const data = Object.assign(
+			{},
+			DEFAULT_SETTINGS,
+			await plugin.loadData()
+		);
 		const settings: WechatPublicPluginSettings = { ...data };
 		// console.log('--------init get access token------');
-		if (settings.accessToken !== '') {
+		if (settings.accessToken !== "") {
 			setAccessToken(settings.accessToken);
 		} else {
 			// console.log("appid " + settings.appid + " ,secret " + settings.secret);
@@ -61,7 +59,7 @@ const createSettingsStore = () => {
 	store.subscribe(async (settings) => {
 		if (_plugin) {
 			const data = {
-				...settings
+				...settings,
 			};
 			await _plugin.saveData(data);
 		}
@@ -70,22 +68,11 @@ const createSettingsStore = () => {
 	const clearSecret = () => {
 		// console.log('[wechat Public plugin] clear secret and exit.');
 		store.update((state) => {
-			state.accessToken = '';
+			state.accessToken = "";
 			state.lastAccessKeyTime = new Date().getTime();
-			state.appid = '';
-			state.secret = '';
+			state.appid = "";
+			state.secret = "";
 			state.isTokenValid = false;
-			return state;
-		});
-	};
-
-	const clearBjhCookie = () => {
-		// console.log('clear bjh cookie and exit.');
-		store.update((state) => {
-			state.BjhCookie = '';
-			state.BjhJwtToken = '';
-			state.BjhAppID = '';
-			state.BjhName = '';
 			return state;
 		});
 	};
@@ -119,10 +106,16 @@ const createSettingsStore = () => {
 			return state;
 		});
 	};
-	
+
 	const setDownloadFolder = (value: string) => {
 		store.update((state) => {
 			state.downloadFolder = value;
+			return state;
+		});
+	};
+	const setCssFolder = (value: string) => {
+		store.update((state) => {
+			state.cssFolder = value;
 			return state;
 		});
 	};
@@ -133,7 +126,7 @@ const createSettingsStore = () => {
 			return state;
 		});
 	};
-	
+
 	const setBlacklistFolder = (notebookBlacklist: string) => {
 		store.update((state) => {
 			state.BlacklistFolder = notebookBlacklist;
@@ -155,34 +148,6 @@ const createSettingsStore = () => {
 		});
 	};
 
-	const setBjhCookie = (BjhCookie: string) => {
-		store.update((state) => {
-			state.BjhCookie = BjhCookie;
-			return state;
-		});
-	};
-
-	const setBjhJwtToken = (BjhJwtToken: string) => {
-		store.update((state) => {
-			state.BjhJwtToken = BjhJwtToken;
-			return state;
-		});
-	};
-
-	const setBjhName = (BjhName: string) => {
-		store.update((state) => {
-			state.BjhName = BjhName;
-			return state;
-		});
-	};
-
-	const setBjhAppID = (BjhAppID: string) => {
-		store.update((state) => {
-			state.BjhAppID = BjhAppID;
-			return state;
-		});
-	};
-
 	return {
 		subscribe: store.subscribe,
 		initialise,
@@ -193,16 +158,12 @@ const createSettingsStore = () => {
 			setAppId,
 			setSecret,
 			clearSecret,
-			clearBjhCookie,
+			setCssFolder,
 			setBlacklistFolder,
 			setYoutubeSaveFolder,
 			setProxyIP,
 			setVideoResolution,
-			setBjhCookie,
-			setBjhJwtToken,
-			setBjhName,
-			setBjhAppID,
-		}
+		},
 	};
 };
 
